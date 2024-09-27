@@ -19,6 +19,8 @@ class Program
         ParseCsv();
     }
 
+    private string _overridesCsvPath = "/home/sebastian/tmp/anki-generator/overrides.csv";
+    
     static void ParseXml()
     {
         string htmlContent = File.ReadAllText("path-to-xml");
@@ -73,18 +75,14 @@ class Program
             HasHeaderRecord = true,
         };
 
+        var processedWords = new List<ProcessedWord>();
+
         using (var reader = new StreamReader(inputFile))
         using (var csv = new CsvReader(reader, config))
-        using (var writer = new StreamWriter(outputFile, false, Encoding.UTF8))
-        using (var csvWriter = new CsvWriter(writer, config))
         {
-            // Write header
-            csvWriter.WriteHeader<ProcessedWord>();
-            csvWriter.NextRecord();
-
             csv.Read();
             csv.ReadHeader();
-            
+
             // Read and process records
             while (csv.Read())
             {
@@ -109,7 +107,23 @@ class Program
                     Order = frequencyData.Order
                 };
 
-                csvWriter.WriteRecord(processedWord);
+                processedWords.Add(processedWord);
+            }
+        }
+
+        // Sort the processed words by Order
+        processedWords.Sort((a, b) => a.Order.CompareTo(b.Order));
+
+        // Write sorted records to the output file
+        using (var writer = new StreamWriter(outputFile, false, Encoding.UTF8))
+        using (var csvWriter = new CsvWriter(writer, config))
+        {
+            csvWriter.WriteHeader<ProcessedWord>();
+            csvWriter.NextRecord();
+
+            foreach (var word in processedWords)
+            {
+                csvWriter.WriteRecord(word);
                 csvWriter.NextRecord();
             }
         }
