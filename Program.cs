@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -7,6 +8,8 @@ using HtmlAgilityPack;
 using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using CsvHelper;
+using CsvHelper.Configuration;
 
 class Program
 {
@@ -65,37 +68,49 @@ class Program
 
         var frequencyCache = LoadFrequencyCache(cacheFile);
 
+        var config = new CsvConfiguration(CultureInfo.InvariantCulture)
+        {
+            HasHeaderRecord = true,
+        };
+
         using (var reader = new StreamReader(inputFile))
+        using (var csv = new CsvReader(reader, config))
         using (var writer = new StreamWriter(outputFile, false, Encoding.UTF8))
+        using (var csvWriter = new CsvWriter(writer, config))
         {
             // Write header
-            writer.WriteLine("German,Wolof,Order");
+            csvWriter.WriteHeader<ProcessedWord>();
+            csvWriter.NextRecord();
 
-            // Skip header
-            reader.ReadLine();
-
-            string line;
-            while ((line = reader.ReadLine()) != null)
+            csv.Read();
+            csv.ReadHeader();
+            
+            // Read and process records
+            while (csv.Read())
             {
-                var parts = line.Split(',');
-                if (parts.Length >= 2)
+                string german = csv.GetField(0);
+                string wolof = csv.GetField(1);
+                var (expandedGerman, frequencyData) = ExpandGermanWithFrequency(german, frequencyCache);
+
+                if (frequencyData == null)
                 {
-                    string german = parts[0].Trim('"');
-                    string wolof = parts[1].Trim('"');
-                    var (expandedGerman, frequencyData) = ExpandGermanWithFrequency(german, frequencyCache);
-
-                    if (frequencyData == null)
+                    frequencyData = new FrequencyData
                     {
-                        frequencyData = new FrequencyData
-                        {
-                            Frequency = 0,
-                            Hits = 0,
-                            Total = 0
-                        };
-                    }
-
-                    writer.WriteLine($"\"{german}\",\"{wolof}\",\"{frequencyData.Order}\"");
+                        Frequency = 0,
+                        Hits = 0,
+                        Total = 0
+                    };
                 }
+
+                var processedWord = new ProcessedWord
+                {
+                    German = german,
+                    Wolof = wolof,
+                    Order = frequencyData.Order
+                };
+
+                csvWriter.WriteRecord(processedWord);
+                csvWriter.NextRecord();
             }
         }
 
@@ -260,4 +275,12 @@ class Program
 
         return [german];
     }
+}
+
+// Add this class to define the structure of the output CSV
+public class ProcessedWord
+{
+    public string German { get; set; }
+    public string Wolof { get; set; }
+    public long Order { get; set; }
 }
