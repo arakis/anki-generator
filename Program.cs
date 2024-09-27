@@ -4,6 +4,9 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Web;
 using HtmlAgilityPack;
+using System.Net;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 class Program
 {
@@ -53,16 +56,20 @@ class Program
         return field;
     }
 
+    static string cacheFile = "frequency_cache.json";
+
     static void ParseCsv()
     {
         string inputFile = "/home/sebastian/tmp/anki-generator/original-words.csv";
         string outputFile = "processed-words.csv";
 
+        var frequencyCache = LoadFrequencyCache(cacheFile);
+
         using (var reader = new StreamReader(inputFile))
         using (var writer = new StreamWriter(outputFile, false, Encoding.UTF8))
         {
             // Write header
-            writer.WriteLine("German,Wolof,Expanded German");
+            writer.WriteLine("German,Wolof,Order");
 
             // Skip header
             reader.ReadLine();
@@ -75,25 +82,154 @@ class Program
                 {
                     string german = parts[0].Trim('"');
                     string wolof = parts[1].Trim('"');
-                    string expandedGerman = ExpandGerman(german);
+                    var (expandedGerman, frequencyData) = ExpandGermanWithFrequency(german, frequencyCache);
 
-                    writer.WriteLine($"\"{german}\",\"{wolof}\",\"{expandedGerman}\"");
+                    if (frequencyData == null)
+                    {
+                        frequencyData = new FrequencyData
+                        {
+                            Frequency = 0,
+                            Hits = 0,
+                            Total = 0
+                        };
+                    }
+
+                    writer.WriteLine($"\"{german}\",\"{wolof}\",\"{frequencyData.Order}\"");
                 }
             }
         }
 
+        SaveFrequencyCache(frequencyCache, cacheFile);
         Console.WriteLine($"Processed CSV file has been generated: {outputFile}");
     }
 
-    static string ExpandGerman(string german)
+    static (string[], FrequencyData) ExpandGermanWithFrequency(string german, Dictionary<string, FrequencyData?> cache)
+    {
+        string[] expandedWords = ExpandGerman(german);
+
+        FrequencyData maxFrequencyData = null;
+        var frequencyData = GetFrequencyFromApi(expandedWords, cache);
+        if (maxFrequencyData == null || frequencyData.Frequency > maxFrequencyData.Frequency)
+            maxFrequencyData = frequencyData;
+
+        return (expandedWords, maxFrequencyData);
+    }
+
+    static FrequencyData? GetFrequencyFromApi(string[] words, Dictionary<string, FrequencyData?> cache)
+    {
+        string query = string.Join("|", words);
+        if (cache.TryGetValue(query, out FrequencyData? frequencyData))
+            return frequencyData;
+
+        try
+        {
+            string url = $"https://dwds.de/api/frequency/?q={HttpUtility.UrlEncode(query)}";
+            using (var client = new System.Net.WebClient())
+            {
+                string json = client.DownloadString(url);
+                var response = JsonSerializer.Deserialize<FrequencyResponse>(json);
+                frequencyData = new FrequencyData
+                {
+                    Hits = response.Hits,
+                    Total = long.Parse(response.Total),
+                    Frequency = response.Frequency,
+                    Query = query
+                };
+                cache[query] = frequencyData;
+                return frequencyData;
+            }
+        }
+        catch (Exception ex)
+        {
+            cache[query] = null;
+            SaveFrequencyCache(cache, cacheFile);
+            return null;
+        }
+    }
+
+    static Dictionary<string, FrequencyData?> LoadFrequencyCache(string cacheFile)
+    {
+        if (File.Exists(cacheFile))
+        {
+            string json = File.ReadAllText(cacheFile);
+            return JsonSerializer.Deserialize<Dictionary<string, FrequencyData?>>(json);
+        }
+
+        return new Dictionary<string, FrequencyData?>();
+    }
+
+    static void SaveFrequencyCache(Dictionary<string, FrequencyData?> cache, string cacheFile)
+    {
+        string json = JsonSerializer.Serialize(cache, new JsonSerializerOptions { WriteIndented = true });
+        File.WriteAllText(cacheFile, json);
+    }
+
+    public class FrequencyResponse
+    {
+        [JsonPropertyName("hits")]
+        public int Hits { get; set; }
+
+        [JsonPropertyName("total")]
+        public string Total { get; set; }
+
+        [JsonPropertyName("frequency")]
+        public int Frequency { get; set; }
+
+        [JsonPropertyName("q")]
+        public string Q { get; set; }
+    }
+
+    class FrequencyData
+    {
+        public int Hits { get; set; }
+
+        public long Total { get; set; }
+
+        public int Frequency { get; set; }
+        public long Order => Hits == 0 ? 0 : Total / Hits;
+
+        public string Query { get; set; }
+    }
+
+    static string[] ExpandGerman(string german)
+    {
+        var newList = new List<string>();
+        var words = ExpandGerman2(german);
+        foreach (var word in words)
+        {
+            if (word.Contains(','))
+            {
+                newList.Add(word.Split(',')[0]);
+                break;
+            }
+            else if (word.Contains(' '))
+            {
+                newList.Add(word.Split(' ')[0]);
+                break;
+            }
+            else if (word.Contains('('))
+            {
+                newList.Add(word.Split('(')[0]);
+                break;
+            }
+            else
+            {
+                newList.Add(word);
+            }
+        }
+
+        return newList.ToArray();
+    }
+
+    static string[] ExpandGerman2(string german)
     {
         if (!german.Contains("("))
-            return german;
+            return [german];
 
         if (german.Contains(" ("))
         {
             // Remove the part in parentheses
-            return Regex.Replace(german, @"\s*\([^)]*\)", "").Trim();
+            return [Regex.Replace(german, @"\s*\([^)]*\)", "").Trim()];
         }
         else
         {
@@ -118,10 +254,10 @@ class Program
                     }
                 }
 
-                return string.Join(", ", expandedForms);
+                return expandedForms.ToArray();
             }
         }
 
-        return german;
+        return [german];
     }
 }
