@@ -19,10 +19,26 @@ class Program
         ProcessWordList();
     }
 
-    private static readonly string OverridesCsvPath = "/home/sebastian/tmp/anki-generator/overrides.csv";
-    private static readonly string ExtraCsvPath = "/home/sebastian/tmp/anki-generator/extra.csv";
-    private static readonly string FrequencyCacheFile = "frequency_cache.json";
+    private static readonly string ProjectDir = GetProjectDirectory();
+    private static readonly string OverridesCsvPath = Path.Combine(ProjectDir, "overrides.csv");
+    private static readonly string ExtraCsvPath = Path.Combine(ProjectDir, "extra.csv");
+    private static readonly string FrequencyCacheFile = Path.Combine(ProjectDir, "frequency_cache.json");
 
+    // Add this method to determine the project directory
+    private static string GetProjectDirectory()
+    {
+        string currentDir = AppDomain.CurrentDomain.BaseDirectory;
+        while (!File.Exists(Path.Combine(currentDir, "anki-generator.csproj")))
+        {
+            currentDir = Directory.GetParent(currentDir)?.FullName;
+            if (currentDir == null)
+            {
+                throw new DirectoryNotFoundException("Could not find the project directory.");
+            }
+        }
+        return currentDir;
+    }
+    
     static void ParseXmlDictionary()
     {
         string htmlContent = File.ReadAllText("path-to-xml");
@@ -65,8 +81,8 @@ class Program
 
     static void ProcessWordList()
     {
-        string inputFile = "/home/sebastian/tmp/anki-generator/original-words.csv";
-        string outputFile = "processed-words.csv";
+        string inputFile = Path.Combine(ProjectDir, "original-words.csv");
+        string outputFile = Path.Combine(ProjectDir, "anki-deck.csv");
 
         var frequencyCache = LoadFrequencyCache(FrequencyCacheFile);
         var overrides = LoadOverrides(OverridesCsvPath);
