@@ -120,53 +120,56 @@ class Program
         for (int i = 0; i < processedWords.Count; i++)
         {
             var word = processedWords[i];
-            word.Index = i;
+            word.Order = i;
 
             // Apply override if exists
             var over = overrides.FirstOrDefault(o => word.German.StartsWith(o.Word, StringComparison.OrdinalIgnoreCase));
             if (over != null)
             {
-                word.Index = over.Index;
+                word.Order = over.Order;
             }
         }
 
         // Sort again by Index after applying overrides
-        processedWords.Sort((a, b) => a.Index.CompareTo(b.Index));
+        processedWords.Sort((a, b) => a.Order.CompareTo(b.Order));
 
         // Calculate absolute Index
         for (int i = 0; i < processedWords.Count; i++)
         {
             var word = processedWords[i];
-            word.Index = i;
+            word.Order = i;
         }
 
         var extraWords = LoadExtraWords(_extraCsvPath);
         // Apply extra words at the beginning
         processedWords.InsertRange(0, extraWords);
 
-        processedWords.Sort((a, b) => a.Index.CompareTo(b.Index));
+        processedWords.Sort((a, b) => a.Order.CompareTo(b.Order));
 
         // Calculate absolute Index
         for (int i = 0; i < processedWords.Count; i++)
         {
             var word = processedWords[i];
-            word.Index = i;
+            word.Order = i;
         }
 
         // Write sorted records to the output file
         using (var writer = new StreamWriter(outputFile, false, Encoding.UTF8))
         using (var csvWriter = new CsvWriter(writer, config))
         {
-            // csvWriter.WriteHeader<ProcessedWord>();
-            // csvWriter.NextRecord();
-
             foreach (var word in processedWords)
             {
-                csvWriter.WriteRecord(word);
+                var outputWord = new ProcessedWordOutput
+                {
+                    German = word.German,
+                    Wolof = word.Wolof
+                };
+
+                csvWriter.WriteRecord(outputWord);
                 csvWriter.NextRecord();
             }
         }
-        
+
         SaveFrequencyCache(frequencyCache, cacheFile);
         Console.WriteLine($"Processed CSV file has been generated: {outputFile}");
     }
@@ -344,7 +347,7 @@ class Program
 
         return overrides;
     }
-    
+
     static List<ProcessedWord> LoadExtraWords(string extraCsvPath)
     {
         var extraWords = new List<ProcessedWord>();
@@ -355,35 +358,39 @@ class Program
             {
                 csv.Read();
                 csv.ReadHeader();
-                
+
                 while (csv.Read())
                 {
                     extraWords.Add(new ProcessedWord
                     {
                         German = csv.GetField("Front"),
                         Wolof = csv.GetField("Back"),
-                        Index = csv.GetField<int>("Index"),
-                        Order = 0 // Set a default Order for extra words
+                        Order = csv.GetField<int>("Order"),
                     });
                 }
             }
         }
+
         return extraWords;
     }
 }
 
-// Add this class to define the structure of the output CSV
 public class ProcessedWord
 {
     public string German { get; set; }
     public string Wolof { get; set; }
     public long Order { get; set; }
-    public int Index { get; set; }
+}
+
+public class ProcessedWordOutput
+{
+    public string German { get; set; }
+    public string Wolof { get; set; }
 }
 
 // Add this class to represent an override
 class Override
 {
     public string Word { get; set; }
-    public int Index { get; set; }
+    public int Order { get; set; }
 }
