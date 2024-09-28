@@ -194,28 +194,28 @@ public class Program
     public class FrequencyResponse
     {
         [JsonPropertyName("hits")]
-        public int Hits { get; set; }
+        public required int Hits { get; init; }
 
         [JsonPropertyName("total")]
-        public string Total { get; set; }
+        public required string Total { get; init; }
 
         [JsonPropertyName("frequency")]
-        public int Frequency { get; set; }
+        public required int Frequency { get; init; }
 
         [JsonPropertyName("q")]
-        public string Q { get; set; }
+        public required string Q { get; init; }
     }
 
     private class FrequencyData
     {
-        public int Hits { get; set; }
+        public required int Hits { get; init; }
 
-        public long Total { get; set; }
+        public required long Total { get; init; }
 
-        public int Frequency { get; set; }
+        public required int Frequency { get; init; }
         public long Order => Hits == 0 ? 0 : Total / Hits;
 
-        public string Query { get; set; }
+        public required string Query { get; init; }
     }
 
     private static string[] ExpandGermanWord(string germanWord)
@@ -354,20 +354,20 @@ public class Program
 
 public class ProcessedWord
 {
-    public string German { get; set; }
-    public string Wolof { get; set; }
+    public required string German { get; init; }
+    public required string Wolof { get; init; }
     public long Order { get; set; }
 }
 
 public class ProcessedWordOutput
 {
-    public string German { get; set; }
-    public string Wolof { get; set; }
+    public required string German { get; init; }
+    public required string Wolof { get; init; }
 }
 
 // Add this class to represent an override
 public class Override
 {
-    public string Word { get; set; }
-    public int Order { get; set; }
+    public required string Word { get; init; }
+    public required int Order { get; init; }
 }
