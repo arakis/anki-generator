@@ -11,9 +11,9 @@ using System.Text.Json.Serialization;
 using CsvHelper;
 using CsvHelper.Configuration;
 
-class Program
+public class Program
 {
-    static void Main(string[] args)
+    private static void Main(string[] args)
     {
         // ParseXmlDictionary(); // Uncomment to parse XML dictionary
         ProcessWordList();
@@ -39,7 +39,7 @@ class Program
         return currentDir;
     }
     
-    static void ParseXmlDictionary()
+    private static void ParseXmlDictionary()
     {
         string htmlContent = File.ReadAllText("path-to-xml");
         var doc = new HtmlDocument();
@@ -69,7 +69,7 @@ class Program
         Console.WriteLine("CSV file has been generated: output.csv");
     }
 
-    static string EscapeCsvField(string field)
+    private static string EscapeCsvField(string field)
     {
         if (field.Contains("\"") || field.Contains(",") || field.Contains("\n"))
         {
@@ -79,7 +79,7 @@ class Program
         return field;
     }
 
-    static void ProcessWordList()
+    private static void ProcessWordList()
     {
         string inputFile = Path.Combine(ProjectDir, "original-words.csv");
         string outputFile = Path.Combine(ProjectDir, "anki-deck.csv");
@@ -135,14 +135,14 @@ class Program
         Console.WriteLine($"Processed CSV file has been generated: {outputFile}");
     }
 
-    static (string[], FrequencyData) GetGermanWordFrequency(string germanWord, Dictionary<string, FrequencyData?> cache)
+    private static (string[], FrequencyData) GetGermanWordFrequency(string germanWord, Dictionary<string, FrequencyData?> cache)
     {
         string[] expandedWords = ExpandGermanWord(germanWord);
         var frequencyData = GetFrequencyFromApi(expandedWords, cache);
         return (expandedWords, frequencyData);
     }
 
-    static FrequencyData? GetFrequencyFromApi(string[] words, Dictionary<string, FrequencyData?> cache)
+    private static FrequencyData? GetFrequencyFromApi(string[] words, Dictionary<string, FrequencyData?> cache)
     {
         string query = string.Join("|", words);
         if (cache.TryGetValue(query, out FrequencyData? frequencyData))
@@ -174,7 +174,7 @@ class Program
         }
     }
 
-    static Dictionary<string, FrequencyData?> LoadFrequencyCache(string cacheFile)
+    private static Dictionary<string, FrequencyData?> LoadFrequencyCache(string cacheFile)
     {
         if (File.Exists(cacheFile))
         {
@@ -185,7 +185,7 @@ class Program
         return new Dictionary<string, FrequencyData?>();
     }
 
-    static void SaveFrequencyCache(Dictionary<string, FrequencyData?> cache, string cacheFile)
+    private static void SaveFrequencyCache(Dictionary<string, FrequencyData?> cache, string cacheFile)
     {
         string json = JsonSerializer.Serialize(cache, new JsonSerializerOptions { WriteIndented = true });
         File.WriteAllText(cacheFile, json);
@@ -206,7 +206,7 @@ class Program
         public string Q { get; set; }
     }
 
-    class FrequencyData
+    private class FrequencyData
     {
         public int Hits { get; set; }
 
@@ -218,7 +218,7 @@ class Program
         public string Query { get; set; }
     }
 
-    static string[] ExpandGermanWord(string germanWord)
+    private static string[] ExpandGermanWord(string germanWord)
     {
         var expandedForms = new List<string>();
         var words = ExpandGermanWordWithParentheses(germanWord);
@@ -234,7 +234,7 @@ class Program
         return expandedForms.ToArray();
     }
 
-    static string[] ExpandGermanWordWithParentheses(string germanWord)
+    private static string[] ExpandGermanWordWithParentheses(string germanWord)
     {
         if (!germanWord.Contains("("))
             return new[] { germanWord };
@@ -262,7 +262,7 @@ class Program
         return new[] { germanWord };
     }
 
-    static void ApplyFrequencyOrderAndOverrides(List<ProcessedWord> words, List<Override> overrides)
+    private static void ApplyFrequencyOrderAndOverrides(List<ProcessedWord> words, List<Override> overrides)
     {
         words.Sort((a, b) => a.Order.CompareTo(b.Order));
 
@@ -282,7 +282,7 @@ class Program
         words.Sort((a, b) => a.Order.CompareTo(b.Order));
     }
 
-    static void RecalculateWordOrder(List<ProcessedWord> words)
+    private static void RecalculateWordOrder(List<ProcessedWord> words)
     {
         for (int i = 0; i < words.Count; i++)
         {
@@ -291,7 +291,7 @@ class Program
     }
 
     // Add this method to load overrides
-    static List<Override> LoadOverrides(string overridesCsvPath)
+    private static List<Override> LoadOverrides(string overridesCsvPath)
     {
         var overrides = new List<Override>();
         if (File.Exists(overridesCsvPath))
@@ -306,7 +306,7 @@ class Program
         return overrides;
     }
 
-    static List<ProcessedWord> LoadExtraWords(string extraCsvPath)
+    private static List<ProcessedWord> LoadExtraWords(string extraCsvPath)
     {
         var extraWords = new List<ProcessedWord>();
         if (File.Exists(extraCsvPath))
@@ -332,7 +332,7 @@ class Program
         return extraWords;
     }
 
-    static void WriteProcessedWordsToFile(List<ProcessedWord> words, string outputFile, CsvConfiguration config)
+    private static void WriteProcessedWordsToFile(List<ProcessedWord> words, string outputFile, CsvConfiguration config)
     {
         using (var writer = new StreamWriter(outputFile, false, Encoding.UTF8))
         using (var csvWriter = new CsvWriter(writer, config))
@@ -366,7 +366,7 @@ public class ProcessedWordOutput
 }
 
 // Add this class to represent an override
-class Override
+public class Override
 {
     public string Word { get; set; }
     public int Order { get; set; }
