@@ -15,14 +15,15 @@ class Program
 {
     static void Main(string[] args)
     {
-        // ParseXml();
-        ParseCsv();
+        // ParseXmlDictionary(); // Uncomment to parse XML dictionary
+        ProcessWordList();
     }
 
-    private static string _overridesCsvPath = "/home/sebastian/tmp/anki-generator/overrides.csv";
-    private static string _extraCsvPath = "/home/sebastian/tmp/anki-generator/extra.csv";
+    private static readonly string OverridesCsvPath = "/home/sebastian/tmp/anki-generator/overrides.csv";
+    private static readonly string ExtraCsvPath = "/home/sebastian/tmp/anki-generator/extra.csv";
+    private static readonly string FrequencyCacheFile = "frequency_cache.json";
 
-    static void ParseXml()
+    static void ParseXmlDictionary()
     {
         string htmlContent = File.ReadAllText("path-to-xml");
         var doc = new HtmlDocument();
@@ -62,128 +63,67 @@ class Program
         return field;
     }
 
-    static string cacheFile = "frequency_cache.json";
-
-    static void ParseCsv()
+    static void ProcessWordList()
     {
         string inputFile = "/home/sebastian/tmp/anki-generator/original-words.csv";
         string outputFile = "processed-words.csv";
 
-        var frequencyCache = LoadFrequencyCache(cacheFile);
-        var overrides = LoadOverrides(_overridesCsvPath);
+        var frequencyCache = LoadFrequencyCache(FrequencyCacheFile);
+        var overrides = LoadOverrides(OverridesCsvPath);
 
-        var config = new CsvConfiguration(CultureInfo.InvariantCulture)
+        var csvConfig = new CsvConfiguration(CultureInfo.InvariantCulture)
         {
             HasHeaderRecord = true,
         };
 
         var processedWords = new List<ProcessedWord>();
 
+        // Read and process input CSV
         using (var reader = new StreamReader(inputFile))
-        using (var csv = new CsvReader(reader, config))
+        using (var csv = new CsvReader(reader, csvConfig))
         {
             csv.Read();
             csv.ReadHeader();
 
-            // Read and process records
             while (csv.Read())
             {
-                string german = csv.GetField(0);
-                string wolof = csv.GetField(1);
-                var (expandedGerman, frequencyData) = ExpandGermanWithFrequency(german, frequencyCache);
-
-                if (frequencyData == null)
-                {
-                    frequencyData = new FrequencyData
-                    {
-                        Frequency = 0,
-                        Hits = 0,
-                        Total = 0
-                    };
-                }
+                string germanWord = csv.GetField(0);
+                string wolofTranslation = csv.GetField(1);
+                var (_, frequencyData) = GetGermanWordFrequency(germanWord, frequencyCache);
 
                 var processedWord = new ProcessedWord
                 {
-                    German = german,
-                    Wolof = wolof,
-                    Order = frequencyData.Order
+                    German = germanWord,
+                    Wolof = wolofTranslation,
+                    Order = frequencyData?.Order ?? long.MaxValue // Use max value for words without frequency data
                 };
 
                 processedWords.Add(processedWord);
             }
         }
 
-        // Sort the processed words by Order
-        processedWords.Sort((a, b) => a.Order.CompareTo(b.Order));
+        // Sort words by frequency and apply overrides
+        ApplyFrequencyOrderAndOverrides(processedWords, overrides);
 
-        // Calculate absolute Index and apply overrides
-        for (int i = 0; i < processedWords.Count; i++)
-        {
-            var word = processedWords[i];
-            word.Order = i;
-
-            // Apply override if exists
-            var over = overrides.FirstOrDefault(o => word.German.StartsWith(o.Word, StringComparison.OrdinalIgnoreCase));
-            if (over != null)
-            {
-                word.Order = over.Order;
-            }
-        }
-
-        // Sort again by Index after applying overrides
-        processedWords.Sort((a, b) => a.Order.CompareTo(b.Order));
-
-        // Calculate absolute Index
-        for (int i = 0; i < processedWords.Count; i++)
-        {
-            var word = processedWords[i];
-            word.Order = i;
-        }
-
-        var extraWords = LoadExtraWords(_extraCsvPath);
-        // Apply extra words at the beginning
+        // Add extra words at the beginning
+        var extraWords = LoadExtraWords(ExtraCsvPath);
         processedWords.InsertRange(0, extraWords);
 
-        processedWords.Sort((a, b) => a.Order.CompareTo(b.Order));
+        // Recalculate final order
+        RecalculateWordOrder(processedWords);
 
-        // Calculate absolute Index
-        for (int i = 0; i < processedWords.Count; i++)
-        {
-            var word = processedWords[i];
-            word.Order = i;
-        }
+        // Write processed words to output CSV
+        WriteProcessedWordsToFile(processedWords, outputFile, csvConfig);
 
-        // Write sorted records to the output file
-        using (var writer = new StreamWriter(outputFile, false, Encoding.UTF8))
-        using (var csvWriter = new CsvWriter(writer, config))
-        {
-            foreach (var word in processedWords)
-            {
-                var outputWord = new ProcessedWordOutput
-                {
-                    German = word.German,
-                    Wolof = word.Wolof
-                };
-
-                csvWriter.WriteRecord(outputWord);
-                csvWriter.NextRecord();
-            }
-        }
-
-        SaveFrequencyCache(frequencyCache, cacheFile);
+        SaveFrequencyCache(frequencyCache, FrequencyCacheFile);
         Console.WriteLine($"Processed CSV file has been generated: {outputFile}");
     }
 
-    static (string[], FrequencyData) ExpandGermanWithFrequency(string german, Dictionary<string, FrequencyData?> cache)
+    static (string[], FrequencyData) GetGermanWordFrequency(string germanWord, Dictionary<string, FrequencyData?> cache)
     {
-        string[] expandedWords = ExpandGerman(german);
-
-        FrequencyData maxFrequencyData = null;
+        string[] expandedWords = ExpandGermanWord(germanWord);
         var frequencyData = GetFrequencyFromApi(expandedWords, cache);
-        if (maxFrequencyData == null || frequencyData.Frequency > maxFrequencyData.Frequency)
-            maxFrequencyData = frequencyData;
-
-        return (expandedWords, maxFrequencyData);
+        return (expandedWords, frequencyData);
     }
 
     static FrequencyData? GetFrequencyFromApi(string[] words, Dictionary<string, FrequencyData?> cache)
@@ -213,7 +153,7 @@ class Program
         catch (Exception ex)
         {
             cache[query] = null;
-            SaveFrequencyCache(cache, cacheFile);
+            SaveFrequencyCache(cache, FrequencyCacheFile);
             return null;
         }
     }
@@ -262,74 +202,76 @@ class Program
         public string Query { get; set; }
     }
 
-    static string[] ExpandGerman(string german)
+    static string[] ExpandGermanWord(string germanWord)
     {
-        var newList = new List<string>();
-        var words = ExpandGerman2(german);
+        var expandedForms = new List<string>();
+        var words = ExpandGermanWordWithParentheses(germanWord);
+        
         foreach (var word in words)
         {
-            if (word.Contains(','))
-            {
-                newList.Add(word.Split(',')[0]);
-                break;
-            }
-            else if (word.Contains(' '))
-            {
-                newList.Add(word.Split(' ')[0]);
-                break;
-            }
-            else if (word.Contains('('))
-            {
-                newList.Add(word.Split('(')[0]);
-                break;
-            }
-            else
-            {
-                newList.Add(word);
-            }
+            // Take only the first part before any comma, space, or opening parenthesis
+            var simplifiedWord = word.Split(new[] { ',', ' ', '(' })[0];
+            expandedForms.Add(simplifiedWord);
+            break; // We only need the first simplified form
         }
 
-        return newList.ToArray();
+        return expandedForms.ToArray();
     }
 
-    static string[] ExpandGerman2(string german)
+    static string[] ExpandGermanWordWithParentheses(string germanWord)
     {
-        if (!german.Contains("("))
-            return [german];
+        if (!germanWord.Contains("("))
+            return new[] { germanWord };
 
-        if (german.Contains(" ("))
+        if (germanWord.Contains(" ("))
         {
-            // Remove the part in parentheses
-            return [Regex.Replace(german, @"\s*\([^)]*\)", "").Trim()];
+            // Remove the part in parentheses for words like "das Haus (Häuser)"
+            return new[] { Regex.Replace(germanWord, @"\s*\([^)]*\)", "").Trim() };
         }
         else
         {
-            // Expand the word
-            var match = Regex.Match(german, @"(\w+)\(([^)]+)\)");
+            // Expand words with internal parentheses like "Haus(es)"
+            var match = Regex.Match(germanWord, @"(\w+)\(([^)]+)\)");
             if (match.Success)
             {
                 string baseWord = match.Groups[1].Value;
                 string endings = match.Groups[2].Value;
 
-                var expandedForms = new List<string>();
-                foreach (var ending in endings.Split(','))
-                {
-                    string trimmedEnding = ending.Trim();
-                    if (trimmedEnding.StartsWith("-"))
-                    {
-                        expandedForms.Add(baseWord + trimmedEnding.Substring(1));
-                    }
-                    else
-                    {
-                        expandedForms.Add(baseWord + trimmedEnding);
-                    }
-                }
-
-                return expandedForms.ToArray();
+                return endings.Split(',')
+                    .Select(ending => baseWord + (ending.Trim().StartsWith("-") ? ending.Trim().Substring(1) : ending.Trim()))
+                    .ToArray();
             }
         }
 
-        return [german];
+        return new[] { germanWord };
+    }
+
+    static void ApplyFrequencyOrderAndOverrides(List<ProcessedWord> words, List<Override> overrides)
+    {
+        words.Sort((a, b) => a.Order.CompareTo(b.Order));
+
+        for (int i = 0; i < words.Count; i++)
+        {
+            var word = words[i];
+            word.Order = i;
+
+            // Apply override if exists
+            var over = overrides.FirstOrDefault(o => word.German.StartsWith(o.Word, StringComparison.OrdinalIgnoreCase));
+            if (over != null)
+            {
+                word.Order = over.Order;
+            }
+        }
+
+        words.Sort((a, b) => a.Order.CompareTo(b.Order));
+    }
+
+    static void RecalculateWordOrder(List<ProcessedWord> words)
+    {
+        for (int i = 0; i < words.Count; i++)
+        {
+            words[i].Order = i;
+        }
     }
 
     // Add this method to load overrides
@@ -372,6 +314,25 @@ class Program
         }
 
         return extraWords;
+    }
+
+    static void WriteProcessedWordsToFile(List<ProcessedWord> words, string outputFile, CsvConfiguration config)
+    {
+        using (var writer = new StreamWriter(outputFile, false, Encoding.UTF8))
+        using (var csvWriter = new CsvWriter(writer, config))
+        {
+            foreach (var word in words)
+            {
+                var outputWord = new ProcessedWordOutput
+                {
+                    German = word.German,
+                    Wolof = word.Wolof
+                };
+
+                csvWriter.WriteRecord(outputWord);
+                csvWriter.NextRecord();
+            }
+        }
     }
 }
 
