@@ -17,14 +17,17 @@ public class Program
 {
     private static void Main(string[] args)
     {
-        // ParseXmlDictionary(); // Uncomment to parse XML dictionary
-        ProcessWordList();
+        if (args.Length == 0)
+        {
+            Console.WriteLine("Please provide a deck name as a parameter.");
+            return;
+        }
+
+        string deckName = args[0];
+        ProcessWordList(deckName);
     }
 
     private static readonly string ProjectDir = GetProjectDirectory();
-    private static readonly string OverridesCsvPath = Path.Combine(ProjectDir, "overrides.csv");
-    private static readonly string ExtraCsvPath = Path.Combine(ProjectDir, "extra.csv");
-    private static readonly string FrequencyCacheFile = Path.Combine(ProjectDir, "frequency_cache.json");
 
     // Add this method to determine the project directory
     private static string GetProjectDirectory()
@@ -42,53 +45,19 @@ public class Program
         return currentDir;
     }
 
-    private static void ParseXmlDictionary()
+    private static void ProcessWordList(string deckName)
     {
-        string htmlContent = File.ReadAllText("path-to-xml");
-        var doc = new HtmlDocument();
-        doc.LoadHtml(htmlContent);
+        string deckDir = Path.Combine(ProjectDir, "decks", deckName);
+        Directory.CreateDirectory(deckDir);
 
-        var paragraphs = doc.DocumentNode.SelectNodes("//p[@class='index' or @class='indext']");
+        string inputFile = Path.Combine(deckDir, "original-words.csv");
+        string outputFile = Path.Combine(deckDir, $"anki-deck.csv");
+        string overridesCsvPath = Path.Combine(deckDir, "overrides.csv");
+        string extraCsvPath = Path.Combine(deckDir, "extra.csv");
+        string frequencyCacheFile = Path.Combine(deckDir, "frequency_cache.json");
 
-        using (var writer = new StreamWriter("output.csv", false, Encoding.UTF8))
-        {
-            writer.WriteLine("German,Wolof");
-
-            foreach (var paragraph in paragraphs)
-            {
-                var germanWord = paragraph.SelectSingleNode(".//span[@class='color2']")?.InnerText.Trim();
-                var wolofTranslation = paragraph.SelectSingleNode("span/text()[last()]")?.InnerText.Trim();
-
-                if (germanWord != null && wolofTranslation != null)
-                {
-                    germanWord = HttpUtility.HtmlDecode(germanWord);
-                    wolofTranslation = HttpUtility.HtmlDecode(wolofTranslation);
-
-                    writer.WriteLine($"\"{EscapeCsvField(germanWord)}\",\"{EscapeCsvField(wolofTranslation)}\"");
-                }
-            }
-        }
-
-        Console.WriteLine("CSV file has been generated: output.csv");
-    }
-
-    private static string EscapeCsvField(string field)
-    {
-        if (field.Contains("\"") || field.Contains(",") || field.Contains("\n"))
-        {
-            return field.Replace("\"", "\"\"");
-        }
-
-        return field;
-    }
-
-    private static void ProcessWordList()
-    {
-        string inputFile = Path.Combine(ProjectDir, "original-words.csv");
-        string outputFile = Path.Combine(ProjectDir, "anki-deck.csv");
-
-        var frequencyCache = LoadFrequencyCache(FrequencyCacheFile);
-        var overrides = LoadOverrides(OverridesCsvPath);
+        var frequencyCache = LoadFrequencyCache(frequencyCacheFile);
+        var overrides = LoadOverrides(overridesCsvPath);
 
         var csvConfig = new CsvConfiguration(CultureInfo.InvariantCulture)
         {
@@ -108,7 +77,7 @@ public class Program
             {
                 string germanWord = csv.GetField(0);
                 string wolofTranslation = csv.GetField(1);
-                var (_, frequencyData) = GetGermanWordFrequency(germanWord, frequencyCache);
+                var (_, frequencyData) = GetGermanWordFrequency(germanWord, frequencyCache, frequencyCacheFile);
 
                 var processedWord = new ProcessedWord
                 {
@@ -125,27 +94,27 @@ public class Program
         ApplyFrequencyOrderAndOverrides(processedWords, overrides);
 
         // Add extra words at the beginning
-        var extraWords = LoadExtraWords(ExtraCsvPath);
+        var extraWords = LoadExtraWords(extraCsvPath);
         processedWords.InsertRange(0, extraWords);
 
         // Recalculate final order
         RecalculateWordOrder(processedWords);
 
         // Write processed words to output CSV
-        WriteProcessedWordsToFile(processedWords, outputFile);
+        WriteProcessedWordsToFile(processedWords, outputFile, deckName);
 
-        SaveFrequencyCache(frequencyCache, FrequencyCacheFile);
+        SaveFrequencyCache(frequencyCache, frequencyCacheFile);
         Console.WriteLine($"Processed CSV file has been generated: {outputFile}");
     }
 
-    private static (string[], FrequencyData) GetGermanWordFrequency(string germanWord, Dictionary<string, FrequencyData?> cache)
+    private static (string[], FrequencyData) GetGermanWordFrequency(string germanWord, Dictionary<string, FrequencyData?> cache, string frequencyCacheFile)
     {
         string[] expandedWords = ExpandGermanWord(germanWord);
-        var frequencyData = GetFrequencyFromApi(expandedWords, cache);
+        var frequencyData = GetFrequencyFromApi(expandedWords, cache, frequencyCacheFile);
         return (expandedWords, frequencyData);
     }
 
-    private static FrequencyData? GetFrequencyFromApi(string[] words, Dictionary<string, FrequencyData?> cache)
+    private static FrequencyData? GetFrequencyFromApi(string[] words, Dictionary<string, FrequencyData?> cache, string frequencyCacheFile)
     {
         string query = string.Join("|", words);
         if (cache.TryGetValue(query, out FrequencyData? frequencyData))
@@ -172,7 +141,7 @@ public class Program
         catch (Exception ex)
         {
             cache[query] = null;
-            SaveFrequencyCache(cache, FrequencyCacheFile);
+            SaveFrequencyCache(cache, frequencyCacheFile);
             return null;
         }
     }
@@ -335,7 +304,7 @@ public class Program
         return extraWords;
     }
 
-    private static void WriteProcessedWordsToFile(List<ProcessedWord> words, string outputFile)
+    private static void WriteProcessedWordsToFile(List<ProcessedWord> words, string outputFile, string deckName)
     {
         using (var writer = new StreamWriter(outputFile, false, Encoding.UTF8))
         using (var csvWriter = new CsvWriter(writer, new CsvConfiguration(CultureInfo.InvariantCulture) { Delimiter = "\t" }))
@@ -354,7 +323,7 @@ public class Program
                 {
                     Id = id,
                     NoteType = "Einfach (beide Richtungen)",
-                    DeckName = "Deutsch Wolof 1000",
+                    DeckName = deckName,
                     German = word.German,
                     Wolof = word.Wolof,
                     Tags = "",
