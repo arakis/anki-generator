@@ -52,7 +52,6 @@ public class Program
     private static void ProcessWordList(string deckName)
     {
         string deckDir = Path.Combine(ProjectDir, "decks", deckName);
-        Directory.CreateDirectory(deckDir);
 
         string inputFile = Path.Combine(deckDir, "original-words.csv");
         string outputFile = Path.Combine(deckDir, "anki-deck.csv");
@@ -78,24 +77,24 @@ public class Program
         Console.WriteLine($"Processed CSV file has been generated: {outputFile}");
     }
 
-    private static List<ProcessedWord> ReadAndProcessInputCsv(string inputFile, Dictionary<string, FrequencyData?> frequencyCache, string frequencyCacheFile)
+    private static List<FrontBackOrder> ReadAndProcessInputCsv(string inputFile, Dictionary<string, FrequencyData?> frequencyCache, string frequencyCacheFile)
     {
-        var processedWords = new List<ProcessedWord>();
+        var processedWords = new List<FrontBackOrder>();
         var csvConfig = new CsvConfiguration(CultureInfo.InvariantCulture) { HasHeaderRecord = true };
 
         using var reader = new StreamReader(inputFile);
         using var csv = new CsvReader(reader, csvConfig);
 
-        var records = csv.GetRecords<GermanWolofWord>();
+        var records = csv.GetRecords<FrontBack>();
 
         foreach (var record in records)
         {
-            var (_, frequencyData) = GetGermanWordFrequency(record.German, frequencyCache, frequencyCacheFile);
+            var (_, frequencyData) = GetGermanWordFrequency(record.Front, frequencyCache, frequencyCacheFile);
 
-            var processedWord = new ProcessedWord
+            var processedWord = new FrontBackOrder
             {
-                German = record.German,
-                Wolof = record.Wolof,
+                Front = record.Front,
+                Back = record.Back,
                 Order = frequencyData?.Order ?? long.MaxValue
             };
 
@@ -230,7 +229,7 @@ public class Program
         return new[] { germanWord };
     }
 
-    private static void ApplyFrequencyOrderAndOverrides(List<ProcessedWord> words, List<Override> overrides)
+    private static void ApplyFrequencyOrderAndOverrides(List<FrontBackOrder> words, List<Override> overrides)
     {
         words.Sort((a, b) => a.Order.CompareTo(b.Order));
 
@@ -240,7 +239,7 @@ public class Program
             word.Order = i;
 
             // Apply override if exists
-            var over = overrides.FirstOrDefault(o => word.German.StartsWith(o.Word, StringComparison.OrdinalIgnoreCase));
+            var over = overrides.FirstOrDefault(o => word.Front.StartsWith(o.Front, StringComparison.OrdinalIgnoreCase));
             if (over != null)
             {
                 word.Order = over.Order;
@@ -250,7 +249,7 @@ public class Program
         words.Sort((a, b) => a.Order.CompareTo(b.Order));
     }
 
-    private static void RecalculateWordOrder(List<ProcessedWord> words)
+    private static void RecalculateWordOrder(List<FrontBackOrder> words)
     {
         for (int i = 0; i < words.Count; i++)
         {
@@ -274,9 +273,9 @@ public class Program
         return overrides;
     }
 
-    private static List<ProcessedWord> LoadExtraWords(string extraCsvPath)
+    private static List<FrontBackOrder> LoadExtraWords(string extraCsvPath)
     {
-        var extraWords = new List<ProcessedWord>();
+        var extraWords = new List<FrontBackOrder>();
         if (File.Exists(extraCsvPath))
         {
             using (var reader = new StreamReader(extraCsvPath))
@@ -287,10 +286,10 @@ public class Program
 
                 while (csv.Read())
                 {
-                    extraWords.Add(new ProcessedWord
+                    extraWords.Add(new FrontBackOrder
                     {
-                        German = csv.GetField("Front"),
-                        Wolof = csv.GetField("Back"),
+                        Front = csv.GetField("Front"),
+                        Back = csv.GetField("Back"),
                         Order = csv.GetField<int>("Order"),
                     });
                 }
@@ -300,7 +299,7 @@ public class Program
         return extraWords;
     }
 
-    private static void WriteProcessedWordsToFile(List<ProcessedWord> words, string outputFile, string deckName)
+    private static void WriteProcessedWordsToFile(List<FrontBackOrder> words, string outputFile, string deckName)
     {
         using (var writer = new StreamWriter(outputFile, false, Encoding.UTF8))
         using (var csvWriter = new CsvWriter(writer, new CsvConfiguration(CultureInfo.InvariantCulture) { Delimiter = "\t" }))
@@ -314,14 +313,14 @@ public class Program
 
             foreach (var word in words)
             {
-                var id = GeneratePersistentId(word.German);
-                var outputWord = new ProcessedWordOutput
+                var id = GeneratePersistentId(word.Front);
+                var outputWord = new DeckOutputRecord
                 {
                     Id = id,
                     NoteType = "Einfach (beide Richtungen)",
                     DeckName = deckName,
-                    German = word.German,
-                    Wolof = word.Wolof,
+                    Front = word.Front,
+                    Back = word.Back,
                     Tags = "",
                 };
 
@@ -357,33 +356,29 @@ public class Program
     }
 }
 
-public class ProcessedWord
+public class FrontBackOrder : FrontBack
 {
-    public required string German { get; init; }
-    public required string Wolof { get; init; }
     public long Order { get; set; }
 }
 
-public class ProcessedWordOutput
+public class DeckOutputRecord
 {
     public required string Id { get; init; } // Changed from Guid to string
     public required string NoteType { get; init; }
     public required string DeckName { get; init; }
-    public required string German { get; init; }
-    public required string Wolof { get; init; }
+    public required string Front { get; init; }
+    public required string Back { get; init; }
     public required string Tags { get; init; }
 }
 
-// Add this class to represent an override
 public class Override
 {
-    public required string Word { get; init; }
+    public required string Front { get; init; }
     public required int Order { get; init; }
 }
 
-// Add this class to represent the input CSV structure
-public class GermanWolofWord
+public class FrontBack
 {
-    public required string German { get; init; }
-    public required string Wolof { get; init; }
+    public required string Front { get; init; }
+    public required string Back { get; init; }
 }
