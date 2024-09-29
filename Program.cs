@@ -12,10 +12,16 @@ using CsvHelper;
 using CsvHelper.Configuration;
 using System.Security.Cryptography;
 using System.Numerics;
+using System.Net.Http;
+using System.Collections.Generic;
+using System.Linq;
 
 public class Program
 {
-    private static void Main(string[] args)
+    private static readonly string ProjectDir = GetProjectDirectory();
+    private static readonly HttpClient HttpClient = new HttpClient();
+
+    public static void Main(string[] args)
     {
         if (args.Length == 0)
         {
@@ -26,8 +32,6 @@ public class Program
         string deckName = args[0];
         ProcessWordList(deckName);
     }
-
-    private static readonly string ProjectDir = GetProjectDirectory();
 
     // Add this method to determine the project directory
     private static string GetProjectDirectory()
@@ -51,7 +55,7 @@ public class Program
         Directory.CreateDirectory(deckDir);
 
         string inputFile = Path.Combine(deckDir, "original-words.csv");
-        string outputFile = Path.Combine(deckDir, $"anki-deck.csv");
+        string outputFile = Path.Combine(deckDir, "anki-deck.csv");
         string overridesCsvPath = Path.Combine(deckDir, "overrides.csv");
         string extraCsvPath = Path.Combine(deckDir, "extra.csv");
         string frequencyCacheFile = Path.Combine(deckDir, "frequency_cache.json");
@@ -59,55 +63,52 @@ public class Program
         var frequencyCache = LoadFrequencyCache(frequencyCacheFile);
         var overrides = LoadOverrides(overridesCsvPath);
 
-        var csvConfig = new CsvConfiguration(CultureInfo.InvariantCulture)
-        {
-            HasHeaderRecord = true,
-        };
+        var processedWords = ReadAndProcessInputCsv(inputFile, frequencyCache, frequencyCacheFile);
 
-        var processedWords = new List<ProcessedWord>();
-
-        // Read and process input CSV
-        using (var reader = new StreamReader(inputFile))
-        using (var csv = new CsvReader(reader, csvConfig))
-        {
-            csv.Read();
-            csv.ReadHeader();
-
-            while (csv.Read())
-            {
-                string germanWord = csv.GetField(0);
-                string wolofTranslation = csv.GetField(1);
-                var (_, frequencyData) = GetGermanWordFrequency(germanWord, frequencyCache, frequencyCacheFile);
-
-                var processedWord = new ProcessedWord
-                {
-                    German = germanWord,
-                    Wolof = wolofTranslation,
-                    Order = frequencyData?.Order ?? long.MaxValue // Use max value for words without frequency data
-                };
-
-                processedWords.Add(processedWord);
-            }
-        }
-
-        // Sort words by frequency and apply overrides
         ApplyFrequencyOrderAndOverrides(processedWords, overrides);
 
-        // Add extra words at the beginning
         var extraWords = LoadExtraWords(extraCsvPath);
         processedWords.InsertRange(0, extraWords);
 
-        // Recalculate final order
         RecalculateWordOrder(processedWords);
 
-        // Write processed words to output CSV
         WriteProcessedWordsToFile(processedWords, outputFile, deckName);
 
         SaveFrequencyCache(frequencyCache, frequencyCacheFile);
         Console.WriteLine($"Processed CSV file has been generated: {outputFile}");
     }
 
-    private static (string[], FrequencyData) GetGermanWordFrequency(string germanWord, Dictionary<string, FrequencyData?> cache, string frequencyCacheFile)
+    private static List<ProcessedWord> ReadAndProcessInputCsv(string inputFile, Dictionary<string, FrequencyData?> frequencyCache, string frequencyCacheFile)
+    {
+        var processedWords = new List<ProcessedWord>();
+        var csvConfig = new CsvConfiguration(CultureInfo.InvariantCulture) { HasHeaderRecord = true };
+
+        using var reader = new StreamReader(inputFile);
+        using var csv = new CsvReader(reader, csvConfig);
+
+        csv.Read();
+        csv.ReadHeader();
+
+        while (csv.Read())
+        {
+            string germanWord = csv.GetField(0);
+            string wolofTranslation = csv.GetField(1);
+            var (_, frequencyData) = GetGermanWordFrequency(germanWord, frequencyCache, frequencyCacheFile);
+
+            var processedWord = new ProcessedWord
+            {
+                German = germanWord,
+                Wolof = wolofTranslation,
+                Order = frequencyData?.Order ?? long.MaxValue
+            };
+
+            processedWords.Add(processedWord);
+        }
+
+        return processedWords;
+    }
+
+    private static (string[], FrequencyData?) GetGermanWordFrequency(string germanWord, Dictionary<string, FrequencyData?> cache, string frequencyCacheFile)
     {
         string[] expandedWords = ExpandGermanWord(germanWord);
         var frequencyData = GetFrequencyFromApi(expandedWords, cache, frequencyCacheFile);
@@ -123,23 +124,21 @@ public class Program
         try
         {
             string url = $"https://dwds.de/api/frequency/?q={HttpUtility.UrlEncode(query)}";
-            using (var client = new System.Net.WebClient())
+            string json = HttpClient.GetStringAsync(url).Result;
+            var response = JsonSerializer.Deserialize<FrequencyResponse>(json);
+            frequencyData = new FrequencyData
             {
-                string json = client.DownloadString(url);
-                var response = JsonSerializer.Deserialize<FrequencyResponse>(json);
-                frequencyData = new FrequencyData
-                {
-                    Hits = response.Hits,
-                    Total = long.Parse(response.Total),
-                    Frequency = response.Frequency,
-                    Query = query
-                };
-                cache[query] = frequencyData;
-                return frequencyData;
-            }
+                Hits = response.Hits,
+                Total = long.Parse(response.Total),
+                Frequency = response.Frequency,
+                Query = query
+            };
+            cache[query] = frequencyData;
+            return frequencyData;
         }
         catch (Exception ex)
         {
+            Console.WriteLine($"Error fetching frequency data: {ex.Message}");
             cache[query] = null;
             SaveFrequencyCache(cache, frequencyCacheFile);
             return null;
