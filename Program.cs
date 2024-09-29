@@ -10,6 +10,8 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using CsvHelper;
 using CsvHelper.Configuration;
+using System.Security.Cryptography;
+using System.Numerics;
 
 public class Program
 {
@@ -36,9 +38,10 @@ public class Program
                 throw new DirectoryNotFoundException("Could not find the project directory.");
             }
         }
+
         return currentDir;
     }
-    
+
     private static void ParseXmlDictionary()
     {
         string htmlContent = File.ReadAllText("path-to-xml");
@@ -129,7 +132,7 @@ public class Program
         RecalculateWordOrder(processedWords);
 
         // Write processed words to output CSV
-        WriteProcessedWordsToFile(processedWords, outputFile, csvConfig);
+        WriteProcessedWordsToFile(processedWords, outputFile);
 
         SaveFrequencyCache(frequencyCache, FrequencyCacheFile);
         Console.WriteLine($"Processed CSV file has been generated: {outputFile}");
@@ -222,7 +225,7 @@ public class Program
     {
         var expandedForms = new List<string>();
         var words = ExpandGermanWordWithParentheses(germanWord);
-        
+
         foreach (var word in words)
         {
             // Take only the first part before any comma, space, or opening parenthesis
@@ -332,23 +335,60 @@ public class Program
         return extraWords;
     }
 
-    private static void WriteProcessedWordsToFile(List<ProcessedWord> words, string outputFile, CsvConfiguration config)
+    private static void WriteProcessedWordsToFile(List<ProcessedWord> words, string outputFile)
     {
         using (var writer = new StreamWriter(outputFile, false, Encoding.UTF8))
-        using (var csvWriter = new CsvWriter(writer, config))
+        using (var csvWriter = new CsvWriter(writer, new CsvConfiguration(CultureInfo.InvariantCulture) { Delimiter = "\t" }))
         {
+            writer.WriteLine("#separator:tab");
+            writer.WriteLine("#html:true");
+            writer.WriteLine("#guid column:1");
+            writer.WriteLine("#notetype column:2");
+            writer.WriteLine("#deck column:3");
+            writer.WriteLine("#tags column:6");
+
             foreach (var word in words)
             {
+                var id = GeneratePersistentId(word.German);
                 var outputWord = new ProcessedWordOutput
                 {
+                    Id = id,
+                    NoteType = "Einfach (beide Richtungen)",
+                    DeckName = "Deutsch Wolof 1000",
                     German = word.German,
-                    Wolof = word.Wolof
+                    Wolof = word.Wolof,
+                    Tags = "",
                 };
 
                 csvWriter.WriteRecord(outputWord);
                 csvWriter.NextRecord();
             }
         }
+    }
+
+    private static string GeneratePersistentId(string german)
+    {
+        using (var sha256 = System.Security.Cryptography.SHA256.Create())
+        {
+            var inputBytes = Encoding.UTF8.GetBytes(german);
+            var hashBytes = sha256.ComputeHash(inputBytes);
+            return ConvertToBase36(hashBytes).Substring(0, 10);
+        }
+    }
+
+    private static string ConvertToBase36(byte[] bytes)
+    {
+        var base36Chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        var result = new StringBuilder();
+        var value = new BigInteger(bytes, isUnsigned: true, isBigEndian: true);
+
+        while (value > 0)
+        {
+            value = BigInteger.DivRem(value, 36, out var remainder);
+            result.Insert(0, base36Chars[(int)remainder]);
+        }
+
+        return result.ToString();
     }
 }
 
@@ -361,8 +401,12 @@ public class ProcessedWord
 
 public class ProcessedWordOutput
 {
+    public required string Id { get; init; } // Changed from Guid to string
+    public required string NoteType { get; init; }
+    public required string DeckName { get; init; }
     public required string German { get; init; }
     public required string Wolof { get; init; }
+    public required string Tags { get; init; }
 }
 
 // Add this class to represent an override
