@@ -86,19 +86,16 @@ public class Program
         using var reader = new StreamReader(inputFile);
         using var csv = new CsvReader(reader, csvConfig);
 
-        csv.Read();
-        csv.ReadHeader();
+        var records = csv.GetRecords<GermanWolofWord>();
 
-        while (csv.Read())
+        foreach (var record in records)
         {
-            string germanWord = csv.GetField(0);
-            string wolofTranslation = csv.GetField(1);
-            var (_, frequencyData) = GetGermanWordFrequency(germanWord, frequencyCache, frequencyCacheFile);
+            var (_, frequencyData) = GetGermanWordFrequency(record.German, frequencyCache, frequencyCacheFile);
 
             var processedWord = new ProcessedWord
             {
-                German = germanWord,
-                Wolof = wolofTranslation,
+                German = record.German,
+                Wolof = record.Wolof,
                 Order = frequencyData?.Order ?? long.MaxValue
             };
 
@@ -382,4 +379,11 @@ public class Override
 {
     public required string Word { get; init; }
     public required int Order { get; init; }
+}
+
+// Add this class to represent the input CSV structure
+public class GermanWolofWord
+{
+    public required string German { get; init; }
+    public required string Wolof { get; init; }
 }
