@@ -25,24 +25,39 @@ public class Program
         }
 
         string deckName = args[0];
-        var processor = new DeckProcessor(deckName);
-        processor.ProcessDeck();
+        string projectDir = GetProjectDirectory();
+        string decksRootDir = Path.Combine(projectDir, "decks");
+        var generator = new DeckGenerator(decksRootDir, deckName);
+        generator.ProcessDeck();
+    }
+
+    private static string GetProjectDirectory()
+    {
+        string currentDir = AppDomain.CurrentDomain.BaseDirectory;
+        while (!File.Exists(Path.Combine(currentDir, "anki-generator.csproj")))
+        {
+            currentDir = Directory.GetParent(currentDir)?.FullName;
+            if (currentDir == null)
+            {
+                throw new DirectoryNotFoundException("Could not find the project directory.");
+            }
+        }
+
+        return currentDir;
     }
 }
 
-public class DeckProcessor
+public class DeckGenerator
 {
     private readonly string _deckName;
     private readonly string _deckDir;
     private readonly HttpClient _httpClient;
     private readonly Dictionary<string, FrequencyData?> _frequencyCache;
-    private readonly string _projectDir;
 
-    public DeckProcessor(string deckName)
+    public DeckGenerator(string decksRootDir, string deckName)
     {
-        _projectDir = GetProjectDirectory();
         _deckName = deckName;
-        _deckDir = Path.Combine(_projectDir, "decks", deckName);
+        _deckDir = Path.Combine(decksRootDir, deckName);
         _httpClient = new HttpClient();
         _frequencyCache = LoadFrequencyCache();
     }
